@@ -1,0 +1,172 @@
+#Several imports needed for the code
+#If you cannot import them, then you'll
+#probably have to install certain modules.
+import hashlib
+import json
+from datetime import datetime
+from time import time
+from uuid import uuid4
+from flask import Flask
+from flask import jsonify
+from pprint import pprint
+
+#Basically what we have to do for a Blockchain to work
+#is first of all defining what a single Block is
+#and then defining how the Chain is made up of these
+#single Blockes we already defined.
+
+
+#Basically, what we have to do for a blockchain to work is to define what a SINGLE BLOCK looks like.
+#So we defined the timestamp, the transaction and the hashes of a block.
+#To calculate our hashes we imported the libraries hashlib and json.
+#Additionally, our blockchain is mineable (number of “0” in the beginning of the hash value).
+#So we also defined an algorithm and the difficulty of the mining process.
+class Block():
+    def __init__(self, nonce, tstamp, transactionsList, prevhash='', hash=''):
+        self.nonce = nonce
+        self.tstamp = tstamp
+        self.transactionsList = transactionsList  # list of dictionary values
+        self.prevhash = prevhash
+        if hash == '':
+            self.hash = self.calcHash()
+        else:
+            self.hash = hash
+
+    def calcHash(self):
+        block_string = json.dumps(
+            {"nonce": self.nonce, "tstamp": str(self.tstamp), "transactions": self.transactionsList,
+             "prevhash": self.prevhash}, sort_keys=True).encode()
+        return hashlib.sha256(block_string).hexdigest()
+
+    def mineBlock(self, diffic):
+        while (self.hash[:diffic] != "0" * diffic):
+            self.nonce += 1
+            self.hash = self.calcHash()
+
+    def toDict(self):
+        return {"nonce": self.nonce, "tstamp": str(self.tstamp), "transactionsList": self.transactionsList,
+                "prevhash": self.prevhash, "hash": self.hash}
+
+#Now that we have defined our single blocks we can start chaining our blocks to a blockchain.
+#So we defined the class BlockChain. To get started we need a first block.
+#To do this we use the generate function to get the initial block of the chain.
+#With the definition of getLastBlock and minePendingTransaction we define the (previous) and further blocks of our blockchain
+#and we also define to which address we want to pay the reward for the newly mined block.
+#At the end we defined also a validity check to make sure that the blockchain is integer
+#by checking the hashes of our blockchain.
+#By doing this, we can show if someone changed or tried to change the blockchain.
+class BlockChain():
+    def __init__(self):
+        self.chain = []
+        self.pendingTransactions = []
+        self.mining_reward = 50
+        self.difficulty = 3
+        self.generateGenesisBlock()
+
+    def generateGenesisBlock(self):
+        dect = {"nonce": 0, "tstamp": '01/01/2019',
+                "transactionsList": [{"from_address": None, "to_address": None, "amount": 0}, ], "hash": ''}
+        b = Block(**dect)
+        self.chain.append(b.toDict())
+
+    def getLastBlock(self):
+        return Block(**self.chain[-1])
+
+    def minePendingTransaction(self, mining_reward_address):
+        block = Block(0, str(datetime.now()), self.pendingTransactions)
+        block.prevhash = self.getLastBlock().hash
+        block.mineBlock(self.difficulty)
+        print("Block is mined to got reward", self.mining_reward)
+        self.chain.append(block.toDict())
+        self.pendingTransactions = [
+            {"from_address": None, "to_address": mining_reward_address, "amount": self.mining_reward}, ]
+
+    def createTransaction(self, from_address, to_address, amount):
+        self.pendingTransactions.append({
+            'from_address': from_address,
+            'to_address': to_address,
+            'amount': amount,
+        })
+
+    def isChainValid(self):
+        for index in range(1, len(self.chain)):
+            currb = Block(**self.chain[index])
+            prevb = Block(**self.chain[index - 1])
+            if currb.hash != currb.calcHash():
+                return False
+            if currb.prevhash != prevb.hash:
+                return False
+        return True
+
+    def calcBalance(self, address):
+        balance = 0
+        for index in range(len(self.chain)):
+            dicList = self.chain[index]["transactionsList"]
+            for dic in dicList:
+                if dic["to_address"] == address:
+                    balance += dic["amount"]
+                if dic["from_address"] == address:
+                    balance -= dic["amount"]
+        return balance
+
+#Creating our Blockchain under the name "our_bchain"
+our_bchain = BlockChain()
+
+# 1.USE: Manually adding transactions to the Blockchain, going from one User (Enis) to another (Bedjet)
+our_bchain.createTransaction('Enis', 'Bedjet', 1050)
+our_bchain.createTransaction('Bedjet', 'Enis', 300)
+#Enis is mining it, so he will get a reward from the system
+our_bchain.minePendingTransaction('Enis')
+our_bchain.createTransaction('Enis', 'Bedjet', 300)
+our_bchain.createTransaction('Bedjet', 'Enis', 800)
+#Now Bedjet is going to mine, but the reward will not yet be shown
+#in his balance: #The reward will be added after the current pending
+#Transaction is over, i.e after a subsequent Transaction is succesfully mined
+our_bchain.minePendingTransaction('Bedjet')
+
+# 2.USE: Having a look at the balance (of a specific User)
+print('Bedjet, your balance is: ', our_bchain.calcBalance('Bedjet'))
+print('Enis, your balance is: ', our_bchain.calcBalance('Enis'))
+
+# 3.USE: Validation of Blocks and Chain; Testing whether it was hacked or not
+if (our_bchain.isChainValid()):
+    print('valid blockhain')
+else:
+    print('hacked blockchain')
+
+
+#Hosting the whole thing on a webpage
+app=Flask(__name__)
+
+node_id=str(uuid4()).replace('-','')
+
+#By clicking on the link that gets put out when running the code,
+#you will get on the main page:
+@app.route("/")
+def hello():
+    return "Hello, you are in the main page of the node"
+
+#You can add at the end of the link "/mine" to get on the particular
+#page defined below:
+@app.route("/mine",methods=['GET'])
+def mine():
+    return "we'll mine a new block"
+
+@app.route('/transactions/new',methods=['POST'])
+def new_transaction():
+    return "we'll add a new transaction here"
+
+#If you add at the end of the link "/chain" you can have
+#a look at the chain: You'll see the different hash codes
+#already generated in the chain, when a particular
+#transaction was done etc.:
+@app.route('/chain',methods=['GET'])
+def full_chain():
+    response = {
+        'chain':our_bchain.chain,
+        'length':len(our_bchain.chain),
+    }
+    return jsonify(response), 200
+
+if __name__=="__main__":
+    app.run()
